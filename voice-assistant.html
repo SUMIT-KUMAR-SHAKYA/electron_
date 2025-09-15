@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Electron Voice Assistant (OpenAI)</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap" rel="stylesheet">
+    <style>
+        /* Custom styles for the app */
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #111827; /* Dark background */
+            color: #E5E7EB; /* Light text */
+        }
+        .assistant-container {
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 2rem;
+        }
+        .pulse {
+            box-shadow: 0 0 0 0 rgba(239, 68, 68, 1);
+            animation: pulse-red 2s infinite;
+        }
+        @keyframes pulse-red {
+            0% {
+                transform: scale(0.95);
+                box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7);
+            }
+            70% {
+                transform: scale(1);
+                box-shadow: 0 0 0 10px rgba(239, 68, 68, 0);
+            }
+            100% {
+                transform: scale(0.95);
+                box-shadow: 0 0 0 0 rgba(239, 68, 68, 0);
+            }
+        }
+        .output-box {
+            background-color: #1F2937;
+            border-radius: 0.5rem;
+            padding: 1rem;
+            margin-top: 1rem;
+            min-height: 120px;
+            border: 1px solid #374151;
+            position: relative;
+        }
+        .copy-button {
+            position: absolute;
+            top: 0.5rem;
+            right: 0.5rem;
+            background-color: #374151;
+            color: #D1D5DB;
+            border: none;
+            border-radius: 0.25rem;
+            padding: 0.25rem 0.5rem;
+            font-size: 0.75rem;
+            cursor: pointer;
+            opacity: 0.5;
+            transition: opacity 0.2s;
+        }
+        .output-box:hover .copy-button {
+            opacity: 1;
+        }
+        .action-button {
+            display: inline-block; /* to allow styling */
+            text-decoration: none; /* remove underline from link */
+            color: white;
+            font-weight: bold;
+            padding: 0.75rem 1.5rem;
+            border-radius: 0.5rem;
+            transition: all 0.2s;
+        }
+    </style>
+</head>
+<body class="flex items-center justify-center min-h-screen">
+
+    <div class="assistant-container text-center">
+        <h1 class="text-4xl md:text-5xl font-bold text-white mb-2">✨ Electron Voice Assistant ✨</h1>
+        <p class="text-lg text-gray-400 mb-8">Click the button and give me a command.</p>
+
+        <button id="controlButton" class="bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-full w-24 h-24 flex items-center justify-center mx-auto transition-transform duration-200 ease-in-out transform hover:scale-105 focus:outline-none">
+            <svg id="micIcon" class="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z"></path></svg>
+        </button>
+
+        <p id="status" class="mt-6 text-gray-400 text-lg">Status: Idle</p>
+        
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mt-8 text-left">
+            <div class="output-box">
+                <h3 class="font-semibold text-lg mb-2 text-blue-400">You Said:</h3>
+                <p id="userTranscript" class="text-gray-300"></p>
+            </div>
+            <div class="output-box">
+                <h3 class="font-semibold text-lg mb-2 text-green-400">Assistant Response:</h3>
+                <p id="assistantReply" class="text-gray-300"></p>
+            </div>
+        </div>
+        
+        <div id="generatedContentContainer" class="output-box mt-6 text-left hidden">
+             <h3 class="font-semibold text-lg mb-2 text-purple-400">✨ Generated Content</h3>
+             <button id="copyButton" class="copy-button">Copy</button>
+             <pre><code id="generatedContent" class="text-gray-300 block whitespace-pre-wrap"></code></pre>
+        </div>
+
+        <div id="actionButtonsContainer" class="mt-6 text-center space-x-4">
+             <a id="downloadEventButton" href="#" download="event.ics" class="action-button bg-purple-600 hover:bg-purple-700 hidden">
+                 Download Calendar Event
+             </a>
+             <a id="openMailButton" href="#" target="_blank" class="action-button bg-red-600 hover:bg-red-700 hidden">
+                 Open Email Draft
+             </a>
+        </div>
+    </div>
+
+    <script>
+        // --- CONFIGURATION ---
+        const OPENAI_API_KEY = "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"; // PASTE YOUR OPENAI API KEY HERE
+
+        // --- DOM ELEMENTS ---
+        const controlButton = document.getElementById('controlButton');
+        const statusDiv = document.getElementById('status');
+        const userTranscriptDiv = document.getElementById('userTranscript');
+        const assistantReplyDiv = document.getElementById('assistantReply');
+        const generatedContentContainer = document.getElementById('generatedContentContainer');
+        const generatedContent = document.getElementById('generatedContent');
+        const copyButton = document.getElementById('copyButton');
+        const downloadEventButton = document.getElementById('downloadEventButton');
+        const openMailButton = document.getElementById('openMailButton');
+        
+        // --- SPEECH RECOGNITION SETUP ---
+        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+        if (!SpeechRecognition) alert("Sorry, your browser does not support Speech Recognition. Please use Google Chrome.");
+        const recognition = new SpeechRecognition();
+        recognition.continuous = false;
+        recognition.lang = 'en-US';
+        recognition.interimResults = false;
+        recognition.maxAlternatives = 1;
+        let isListening = false;
+
+        // --- SPEECH SYNTHESIS (SPEAKING) SETUP ---
+        const synth = window.speechSynthesis;
+
+        // --- SYSTEM PROMPTS ---
+        const plannerSystemPrompt = `You are an advanced voice assistant. Your user is giving you a voice command. Your job is to understand the command and explain the steps you would take to execute it. Do NOT say you are an AI model. Act like a real assistant. Keep your responses concise and action-oriented. Start your response with "Okay," or "Sure,". Example Command: "Check my email and reply to Jane that I will be there." Example Response: "Okay, I will access your inbox, find the latest email from Jane, and send the reply: 'I will be there.'"`;
+        const codeSystemPrompt = `You are an expert code generator AI. The user will ask you to write code in a specific language. Your job is to provide only the clean, well-formatted code. Do not add any explanation or introductory text unless the user specifically asks for it.`;
+        const creativeSystemPrompt = `You are a creative storyteller AI. The user will ask you to tell a story or write a poem. Your job is to generate a creative, engaging, and family-friendly piece of writing based on the user's prompt.`;
+        const calendarSystemPrompt = `You are a calendar assistant. Your task is to extract event details from a user's voice command. The current date is ${new Date().toISOString()}. Respond with only a valid JSON object containing these keys: "title", "description", "startTime". The startTime must be in 'YYYY-MM-DDTHH:mm:ss' format. Assume a default duration of 1 hour if not specified. Be smart about relative dates like 'tomorrow' or 'next Tuesday'.`;
+        const mailSystemPrompt = `You are a mail assistant. Your task is to extract email details from a user's voice command. Respond with only a valid JSON object containing these keys: "recipient", "subject", "body". Extract the recipient's email (if mentioned, otherwise use an empty string), the subject, and the body. Be smart about interpreting the user's intent.`;
+
+        // --- CORE FUNCTIONS ---
+        function speak(text, contentToDisplay = null) {
+            if (synth.speaking) return;
+            const utterance = new SpeechSynthesisUtterance(text);
+            utterance.onerror = (event) => console.error('SpeechSynthesisUtterance.onerror', event);
+            assistantReplyDiv.textContent = text;
+            
+            generatedContentContainer.classList.toggle('hidden', !contentToDisplay);
+            if (contentToDisplay) generatedContent.textContent = contentToDisplay;
+            
+            synth.speak(utterance);
+        }
+
+        function createCalendarEvent(details) {
+            const { title, description, startTime } = details;
+            const startDate = new Date(startTime);
+            const endDate = new Date(startDate.getTime() + 60 * 60 * 1000); // Add 1 hour
+            const formatVEventDate = (date) => date.toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z';
+            const icsContent = `BEGIN:VCALENDAR\nVERSION:2.0\nPRODID:-//ElectronAssistant//EN\nBEGIN:VEVENT\nUID:${Date.now()}@electron.com\nDTSTAMP:${formatVEventDate(new Date())}\nDTSTART:${formatVEventDate(startDate)}\nDTEND:${formatVEventDate(endDate)}\nSUMMARY:${title}\nDESCRIPTION:${description}\nEND:VEVENT\nEND:VCALENDAR`;
+            const blob = new Blob([icsContent], { type: 'text/calendar' });
+            downloadEventButton.href = URL.createObjectURL(blob);
+            downloadEventButton.classList.remove('hidden');
+        }
+
+        function createMailLink(details) {
+            const { recipient, subject, body } = details;
+            const encodedSubject = encodeURIComponent(subject);
+            const encodedBody = encodeURIComponent(body);
+            openMailButton.href = `mailto:${recipient}?subject=${encodedSubject}&body=${encodedBody}`;
+            openMailButton.classList.remove('hidden');
+        }
+
+        // --- MODIFIED FOR OPENAI ---
+        async function getAssistantResponse(prompt) {
+            statusDiv.textContent = 'Thinking...';
+            const apiUrl = 'https://api.openai.com/v1/chat/completions';
+            
+            let systemInstructionText = plannerSystemPrompt;
+            let responsePrefix = "Sure, planning that for you.";
+            let isGenerativeTask = false, isCalendarTask = false, isMailTask = false;
+
+            const lowerCasePrompt = prompt.toLowerCase();
+            const calendarKeywords = ['schedule', 'meeting', 'appointment', 'calendar', 'event'];
+            const mailKeywords = ['email', 'mail', 'send to', 'reply to'];
+            
+            if (mailKeywords.some(keyword => lowerCasePrompt.includes(keyword))) {
+                systemInstructionText = mailSystemPrompt;
+                responsePrefix = "Okay, I'm preparing that email draft for you.";
+                isMailTask = true;
+            } else if (calendarKeywords.some(keyword => lowerCasePrompt.includes(keyword))) {
+                systemInstructionText = calendarSystemPrompt;
+                responsePrefix = "Okay, I'm creating that calendar event for you.";
+                isCalendarTask = true;
+            } else if (lowerCasePrompt.includes('code') || lowerCasePrompt.includes('python')) {
+                systemInstructionText = codeSystemPrompt;
+                responsePrefix = "Okay, generating the code for you.";
+                isGenerativeTask = true;
+            } else if (lowerCasePrompt.includes('story') || lowerCasePrompt.includes('poem')) {
+                systemInstructionText = creativeSystemPrompt;
+                responsePrefix = "Of course, here is a story for you.";
+                isGenerativeTask = true;
+            }
+
+            const payload = {
+                model: "gpt-4o", // You can also use "gpt-3.5-turbo"
+                messages: [
+                    { role: "system", content: systemInstructionText },
+                    { role: "user", content: prompt }
+                ]
+            };
+
+            if (isCalendarTask || isMailTask) {
+                payload.response_format = { type: "json_object" };
+            }
+
+            try {
+                const response = await fetch(apiUrl, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${OPENAI_API_KEY}`
+                    },
+                    body: JSON.stringify(payload)
+                });
+
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    throw new Error(`API error: ${response.statusText} - ${errorData.error.message}`);
+                }
+                
+                const result = await response.json();
+                const assistantText = result.choices?.[0]?.message?.content;
+                
+                if (assistantText) {
+                    if (isMailTask || isCalendarTask) {
+                        try {
+                            const details = JSON.parse(assistantText);
+                            speak(responsePrefix);
+                            if (isMailTask) createMailLink(details);
+                            if (isCalendarTask) createCalendarEvent(details);
+                        } catch(e) {
+                            console.error("Failed to parse JSON response", e);
+                            speak("I understood the task, but had trouble finalizing the details. Please try again.");
+                        }
+                    } else if (isGenerativeTask) {
+                        speak(responsePrefix, assistantText);
+                    } else {
+                        speak(assistantText);
+                    }
+                } else {
+                    speak("I'm sorry, I couldn't process that. Please try again.");
+                }
+            } catch (error) {
+                console.error('Error calling OpenAI API:', error);
+                speak("I'm having trouble connecting to my brain. Please check your OpenAI API key and connection.");
+            }
+        }
+
+        // --- EVENT LISTENERS ---
+        controlButton.addEventListener('click', () => isListening ? recognition.stop() : recognition.start());
+
+        recognition.onstart = () => {
+            isListening = true;
+            statusDiv.textContent = 'Listening...';
+            controlButton.classList.add('pulse');
+            userTranscriptDiv.textContent = '';
+            assistantReplyDiv.textContent = '';
+            generatedContentContainer.classList.add('hidden');
+            downloadEventButton.classList.add('hidden');
+            openMailButton.classList.add('hidden');
+        };
+
+        recognition.onend = () => {
+            isListening = false;
+            statusDiv.textContent = 'Status: Idle';
+            controlButton.classList.remove('pulse');
+        };
+
+        recognition.onresult = (event) => {
+            const transcript = event.results[0][0].transcript;
+            userTranscriptDiv.textContent = transcript;
+            getAssistantResponse(transcript);
+        };
+
+        recognition.onerror = (event) => {
+            console.error('Speech recognition error:', event.error);
+            statusDiv.textContent = `Error: ${event.error}`;
+        };
+        
+        copyButton.addEventListener('click', () => {
+            navigator.clipboard.writeText(generatedContent.textContent)
+                .then(() => {
+                    copyButton.textContent = 'Copied!';
+                    setTimeout(() => { copyButton.textContent = 'Copy'; }, 2000);
+                })
+                .catch(err => console.error('Failed to copy text: ', err));
+        });
+    </script>
+</body>
+</html>
